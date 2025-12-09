@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from ...extras import logging
 from ...extras.constants import IGNORE_INDEX
+from ..coordinate_utils import compute_resize_scales, rescale_points_in_messages
 from .processor_utils import DatasetProcessor, greedy_knapsack, infer_seqlen
 
 
@@ -40,7 +41,21 @@ class SupervisedDatasetProcessor(DatasetProcessor):
         videos: list["VideoInput"],
         audios: list["AudioInput"],
     ) -> tuple[list[int], list[int]]:
-        messages = self.template.mm_plugin.process_messages(prompt + response, images, videos, audios, self.processor)
+        scaled_prompt, scaled_response = prompt, response
+        if (
+            images
+            and self.processor is not None
+            and getattr(self.data_args, "rescale_action_coordinates", False)
+        ):
+            scales = compute_resize_scales(self.template.mm_plugin, self.processor, images)
+            if scales:
+                scale_w, scale_h = scales[0]
+                scaled_prompt = rescale_points_in_messages(prompt, scale_w, scale_h)
+                scaled_response = rescale_points_in_messages(response, scale_w, scale_h)
+
+        messages = self.template.mm_plugin.process_messages(
+            scaled_prompt + scaled_response, images, videos, audios, self.processor
+        )
         input_ids, labels = self.template.mm_plugin.process_token_ids(
             [], [], images, videos, audios, self.tokenizer, self.processor
         )

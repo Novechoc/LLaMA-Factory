@@ -490,6 +490,26 @@ class FinetuningArguments(
         default=False,
         metadata={"help": "Whether to use the DFT loss."},
     )
+    thought_action_loss: bool = field(
+        default=True,
+        metadata={"help": "Average losses computed on `Thought:` and `Action:` segments of the target."},
+    )
+    thought_tag: str = field(
+        default="Thought:",
+        metadata={"help": "Marker indicating the start of the thought segment."},
+    )
+    action_tag: str = field(
+        default="Action:",
+        metadata={"help": "Marker indicating the start of the action segment."},
+    )
+    thought_loss_weight: float = field(
+        default=0.5,
+        metadata={"help": "Weight for the thought segment loss (combined with action_loss_weight)."},
+    )
+    action_loss_weight: float = field(
+        default=0.5,
+        metadata={"help": "Weight for the action segment loss (combined with thought_loss_weight)."},
+    )
     freeze_vision_tower: bool = field(
         default=True,
         metadata={"help": "Whether ot not to freeze the vision tower in MLLM training."},

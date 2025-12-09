@@ -23,6 +23,7 @@ from transformers import GenerationConfig, TextIteratorStreamer
 from typing_extensions import override
 
 from ..data import get_template_and_fix_tokenizer
+from ..data.coordinate_utils import compute_resize_scales, rescale_points_in_messages
 from ..extras import logging
 from ..extras.constants import AUDIO_PLACEHOLDER, IMAGE_PLACEHOLDER, VIDEO_PLACEHOLDER, EngineName
 from ..model import load_model, load_tokenizer
@@ -51,6 +52,7 @@ class HuggingfaceEngine(BaseEngine):
     ) -> None:
         self.name = EngineName.HF
         self.can_generate = finetuning_args.stage == "sft"
+        self.data_args = data_args
         tokenizer_module = load_tokenizer(model_args)
         self.tokenizer = tokenizer_module["tokenizer"]
         self.processor = tokenizer_module["processor"]
@@ -83,8 +85,10 @@ class HuggingfaceEngine(BaseEngine):
         videos: Optional[list["VideoInput"]] = None,
         audios: Optional[list["AudioInput"]] = None,
         input_kwargs: Optional[dict[str, Any]] = {},
+        rescale_action_coordinates: bool = False,
     ) -> tuple[dict[str, Any], int]:
         mm_input_dict = {"images": [], "videos": [], "audios": [], "imglens": [0], "vidlens": [0], "audlens": [0]}
+        messages = [message.copy() for message in messages]
         if images is not None:
             mm_input_dict.update({"images": images, "imglens": [len(images)]})
             if not any(IMAGE_PLACEHOLDER in message["content"] for message in messages):
@@ -99,6 +103,12 @@ class HuggingfaceEngine(BaseEngine):
             mm_input_dict.update({"audios": audios, "audlens": [len(audios)]})
             if not any(AUDIO_PLACEHOLDER in message["content"] for message in messages):
                 messages[0]["content"] = AUDIO_PLACEHOLDER * len(audios) + messages[0]["content"]
+
+        if mm_input_dict["images"] and rescale_action_coordinates:
+            scales = compute_resize_scales(template.mm_plugin, processor, mm_input_dict["images"])
+            if scales:
+                scale_w, scale_h = scales[0]
+                messages = rescale_points_in_messages(messages, scale_w, scale_h)
 
         messages = template.mm_plugin.process_messages(
             messages, mm_input_dict["images"], mm_input_dict["videos"], mm_input_dict["audios"], processor
@@ -222,6 +232,7 @@ class HuggingfaceEngine(BaseEngine):
         videos: Optional[list["VideoInput"]] = None,
         audios: Optional[list["AudioInput"]] = None,
         input_kwargs: Optional[dict[str, Any]] = {},
+        rescale_action_coordinates: bool = False,
     ) -> list["Response"]:
         gen_kwargs, prompt_length = HuggingfaceEngine._process_args(
             model,
@@ -236,6 +247,7 @@ class HuggingfaceEngine(BaseEngine):
             videos,
             audios,
             input_kwargs,
+            rescale_action_coordinates=rescale_action_coordinates,
         )
         generate_output = model.generate(**gen_kwargs)
         if isinstance(generate_output, tuple):
@@ -277,6 +289,7 @@ class HuggingfaceEngine(BaseEngine):
         videos: Optional[list["VideoInput"]] = None,
         audios: Optional[list["AudioInput"]] = None,
         input_kwargs: Optional[dict[str, Any]] = {},
+        rescale_action_coordinates: bool = False,
     ) -> Callable[[], str]:
         gen_kwargs, _ = HuggingfaceEngine._process_args(
             model,
@@ -291,6 +304,7 @@ class HuggingfaceEngine(BaseEngine):
             videos,
             audios,
             input_kwargs,
+            rescale_action_coordinates=rescale_action_coordinates,
         )
         streamer = TextIteratorStreamer(
             tokenizer,
@@ -345,6 +359,7 @@ class HuggingfaceEngine(BaseEngine):
         if not self.can_generate:
             raise ValueError("The current model does not support `chat`.")
 
+        rescale_action_coordinates = getattr(self.data_args, "rescale_action_coordinates", False)
         input_args = (
             self.model,
             self.tokenizer,
@@ -358,6 +373,7 @@ class HuggingfaceEngine(BaseEngine):
             videos,
             audios,
             input_kwargs,
+            rescale_action_coordinates,
         )
         async with self.semaphore:
             return await asyncio.to_thread(self._chat, *input_args)
@@ -376,6 +392,7 @@ class HuggingfaceEngine(BaseEngine):
         if not self.can_generate:
             raise ValueError("The current model does not support `stream_chat`.")
 
+        rescale_action_coordinates = getattr(self.data_args, "rescale_action_coordinates", False)
         input_args = (
             self.model,
             self.tokenizer,
@@ -389,6 +406,7 @@ class HuggingfaceEngine(BaseEngine):
             videos,
             audios,
             input_kwargs,
+            rescale_action_coordinates,
         )
         async with self.semaphore:
             stream = self._stream_chat(*input_args)

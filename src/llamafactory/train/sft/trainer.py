@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any, Optional, Union
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from transformers import Seq2SeqTrainer
 from typing_extensions import override
 
@@ -83,10 +84,38 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
             self.accelerator.clip_grad_norm_ = MethodType(clip_grad_norm_old_version, self.accelerator)
             self.add_callback(BAdamCallback)
 
+        self._use_segmented_loss = finetuning_args.thought_action_loss
+        self._segment_markers: Optional[dict[str, list[int]]] = None
+        self._thought_loss_weight = finetuning_args.thought_loss_weight
+        self._action_loss_weight = finetuning_args.action_loss_weight
+
         if finetuning_args.use_dft_loss:
+            if self._use_segmented_loss:
+                raise ValueError("`thought_action_loss` cannot be combined with `use_dft_loss`.")
+
             from ..trainer_utils import dft_loss_func
 
             self.compute_loss_func = dft_loss_func
+        elif self._use_segmented_loss:
+            if self._thought_loss_weight < 0 or self._action_loss_weight < 0:
+                raise ValueError("Loss weights must be non-negative.")
+            if self._thought_loss_weight == 0 and self._action_loss_weight == 0:
+                raise ValueError("At least one loss weight must be positive.")
+            tokenizer = getattr(self, "tokenizer", None)
+            if tokenizer is None:
+                tokenizer = getattr(self, "processing_class", None)
+            if tokenizer is None and hasattr(self.data_collator, "tokenizer"):
+                tokenizer = self.data_collator.tokenizer
+
+            if tokenizer is None:
+                raise RuntimeError("Tokenizer is required when `thought_action_loss=True`.")
+
+            thought_tokens = tokenizer.encode(finetuning_args.thought_tag, add_special_tokens=False)
+            action_tokens = tokenizer.encode(finetuning_args.action_tag, add_special_tokens=False)
+            if len(thought_tokens) == 0 or len(action_tokens) == 0:
+                raise ValueError("Unable to tokenize the provided thought/action markers.")
+
+            self._segment_markers = {"thought": thought_tokens, "action": action_tokens}
 
         # Verify FP8 status after trainer initialization (accelerator should be available)
         if model_args is not None and model_args.fp8 and hasattr(self, "accelerator"):
@@ -113,8 +142,162 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
         return super()._get_train_sampler(*args, **kwargs)
 
     @override
-    def compute_loss(self, model, inputs, *args, **kwargs):
-        return super().compute_loss(model, inputs, *args, **kwargs)
+    def compute_loss(self, model, inputs, return_outputs: bool = False, **kwargs):
+        if not getattr(self, "_use_segmented_loss", False):
+            return super().compute_loss(model, inputs, return_outputs=return_outputs, **kwargs)
+
+        labels: Optional[torch.Tensor] = inputs.get("labels")
+        # Allow extra kwargs such as `num_items_in_batch` passed by Trainer.
+        kwargs.pop("num_items_in_batch", None)
+        outputs = model(**inputs)
+
+        logits = None
+        if isinstance(outputs, dict):
+            logits = outputs.get("logits")
+        elif hasattr(outputs, "logits"):
+            logits = outputs.logits
+        elif isinstance(outputs, (tuple, list)) and len(outputs) > 1:
+            logits = outputs[1]
+
+        if logits is None or labels is None:
+            raise RuntimeError("`logits` and `labels` are required when `thought_action_loss=True`.")
+
+        segment_map = self._build_segment_map(labels)
+        loss = self._segment_average_loss(logits, labels, segment_map)
+
+        if isinstance(outputs, dict):
+            outputs["loss"] = loss
+        elif hasattr(outputs, "loss"):
+            outputs.loss = loss
+
+        return (loss, outputs) if return_outputs else loss
+
+    def _build_segment_map(self, labels: torch.Tensor) -> torch.Tensor:
+        if self._segment_markers is None:
+            return torch.zeros_like(labels, dtype=torch.long)
+
+        segments = torch.zeros_like(labels, dtype=torch.long)
+        thought_tokens = self._segment_markers["thought"]
+        action_tokens = self._segment_markers["action"]
+
+        label_rows = labels.detach().cpu().tolist()
+        for row_idx, row in enumerate(label_rows):
+            thought_start = self._find_subsequence(row, thought_tokens, 0)
+            if thought_start == -1:
+                continue
+
+            after_thought = self._advance_past_pattern(row, thought_start, thought_tokens)
+            action_start = self._find_subsequence(row, action_tokens, after_thought)
+
+            last_valid = -1
+            for pos in range(len(row) - 1, -1, -1):
+                if row[pos] != IGNORE_INDEX:
+                    last_valid = pos
+                    break
+
+            if last_valid == -1:
+                continue
+
+            current_segment = 1
+            pos = thought_start
+            while pos <= last_valid:
+                token_id = row[pos]
+                if token_id != IGNORE_INDEX:
+                    if action_start != -1 and pos >= action_start:
+                        current_segment = 2
+                    segments[row_idx, pos] = current_segment
+                pos += 1
+
+        return segments.to(labels.device)
+
+    @staticmethod
+    def _find_subsequence(row: list[int], pattern: list[int], start: int) -> int:
+        if not pattern:
+            return -1
+
+        plen = len(pattern)
+        idx = start
+        limit = len(row)
+        while idx < limit:
+            if row[idx] == IGNORE_INDEX:
+                idx += 1
+                continue
+
+            j = idx
+            k = 0
+            while j < limit and k < plen:
+                token = row[j]
+                if token == IGNORE_INDEX:
+                    j += 1
+                    continue
+                if token != pattern[k]:
+                    break
+                j += 1
+                k += 1
+
+            if k == plen:
+                return idx
+
+            idx += 1
+
+        return -1
+
+    @staticmethod
+    def _advance_past_pattern(row: list[int], start: int, pattern: list[int]) -> int:
+        idx = start
+        matched = 0
+        limit = len(row)
+        while idx < limit and matched < len(pattern):
+            token = row[idx]
+            if token == IGNORE_INDEX:
+                idx += 1
+                continue
+            if token != pattern[matched]:
+                break
+            idx += 1
+            matched += 1
+
+        return idx
+
+    def _segment_average_loss(self, logits: torch.Tensor, labels: torch.Tensor, segments: torch.Tensor) -> torch.Tensor:
+        shift_logits = logits[:, :-1, :].contiguous()
+        shift_labels = labels[:, 1:].contiguous()
+        shift_segments = segments[:, 1:].contiguous()
+
+        per_token_loss = F.cross_entropy(
+            shift_logits.view(-1, shift_logits.size(-1)),
+            shift_labels.view(-1),
+            ignore_index=IGNORE_INDEX,
+            reduction="none",
+        ).view_as(shift_labels)
+
+        valid_mask = shift_labels.ne(IGNORE_INDEX)
+        thought_mask = (shift_segments == 1) & valid_mask
+        action_mask = (shift_segments == 2) & valid_mask
+
+        # Compute weighted loss based on present segments
+        weighted_loss = 0.0
+        total_weight = 0.0
+
+        if thought_mask.any():
+            thought_loss = per_token_loss[thought_mask].mean()
+            weighted_loss += thought_loss * self._thought_loss_weight
+            total_weight += self._thought_loss_weight
+
+        if action_mask.any():
+            action_loss = per_token_loss[action_mask].mean()
+            weighted_loss += action_loss * self._action_loss_weight
+            total_weight += self._action_loss_weight
+
+        # Fallback if no segments found
+        if total_weight == 0:
+            if valid_mask.any():
+                return per_token_loss[valid_mask].mean()
+            else:
+                return per_token_loss.mean()
+
+        # Normalize by total weight of present segments
+        return weighted_loss / total_weight
 
     @override
     def prediction_step(

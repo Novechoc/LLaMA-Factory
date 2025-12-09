@@ -20,6 +20,7 @@ from packaging import version
 from typing_extensions import override
 
 from ..data import get_template_and_fix_tokenizer
+from ..data.coordinate_utils import compute_resize_scales, rescale_points_in_messages
 from ..extras import logging
 from ..extras.constants import AUDIO_PLACEHOLDER, IMAGE_PLACEHOLDER, VIDEO_PLACEHOLDER, EngineName
 from ..extras.misc import get_device_count
@@ -53,6 +54,7 @@ class VllmEngine(BaseEngine):
     ) -> None:
         self.name = EngineName.VLLM
         self.model_args = model_args
+        self.data_args = data_args
         config = load_config(model_args)  # may download model from ms hub
         if getattr(config, "quantization_config", None):  # gptq models should use float16
             quantization_config: dict[str, Any] = getattr(config, "quantization_config", None)
@@ -119,6 +121,7 @@ class VllmEngine(BaseEngine):
         **input_kwargs,
     ) -> AsyncIterator["RequestOutput"]:
         request_id = f"chatcmpl-{uuid.uuid4().hex}"
+        messages = [message.copy() for message in messages]
         if images is not None and not any(IMAGE_PLACEHOLDER in message["content"] for message in messages):
             messages[0]["content"] = IMAGE_PLACEHOLDER * len(images) + messages[0]["content"]
 
@@ -127,6 +130,12 @@ class VllmEngine(BaseEngine):
 
         if audios is not None and not any(AUDIO_PLACEHOLDER in message["content"] for message in messages):
             messages[0]["content"] = AUDIO_PLACEHOLDER * len(audios) + messages[0]["content"]
+
+        if images and getattr(self.data_args, "rescale_action_coordinates", False):
+            scales = compute_resize_scales(self.template.mm_plugin, self.processor, images)
+            if scales:
+                scale_w, scale_h = scales[0]
+                messages = rescale_points_in_messages(messages, scale_w, scale_h)
 
         messages = self.template.mm_plugin.process_messages(
             messages, images or [], videos or [], audios or [], self.processor
