@@ -1,4 +1,4 @@
-# Copyright 2025 the KVCache.AI team, Approaching AI, and the LlamaFactory team.
+# Copyright 2025 the LlamaFactory team.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .workflow import run_sft
+
+import os
+
+from llamafactory.v1.accelerator.interface import DistributedInterface
 
 
-__all__ = ["run_sft"]
+def test_distributed_interface():
+    DistributedInterface()
+    assert DistributedInterface.get_rank() == int(os.getenv("RANK", "0"))
+    assert DistributedInterface.get_world_size() == int(os.getenv("WORLD_SIZE", "1"))
+    assert DistributedInterface.get_local_rank() == int(os.getenv("LOCAL_RANK", "0"))
+    assert DistributedInterface.get_local_world_size() == int(os.getenv("LOCAL_WORLD_SIZE", "1"))

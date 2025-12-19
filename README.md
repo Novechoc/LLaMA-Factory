@@ -291,8 +291,8 @@ Read technical notes:
 | [Gemma/Gemma 2/CodeGemma](https://huggingface.co/google)          | 2B/7B/9B/27B                     | gemma/gemma2         |
 | [Gemma 3/Gemma 3n](https://huggingface.co/google)                 | 270M/1B/4B/6B/8B/12B/27B         | gemma3/gemma3n       |
 | [GLM-4/GLM-4-0414/GLM-Z1](https://huggingface.co/zai-org)         | 9B/32B                           | glm4/glmz1           |
-| [GLM-4.1V/GLM-4.6V](https://huggingface.co/zai-org)               | 9B/106B                          | glm4v                |
-| [GLM-4.5/GLM-4.5V](https://huggingface.co/zai-org)                | 106B/355B                        | glm4_moe/glm4v_moe   |
+| [GLM-4.1V](https://huggingface.co/zai-org)                        | 9B                               | glm4v                |
+| [GLM-4.5/GLM-4.5(6)V](https://huggingface.co/zai-org)             | 9B/106B/355B                     | glm4_moe/glm4_5v     |
 | [GPT-2](https://huggingface.co/openai-community)                  | 0.1B/0.4B/0.8B/1.5B              | -                    |
 | [GPT-OSS](https://huggingface.co/openai)                          | 20B/120B                         | gpt                  |
 | [Granite 3.0-3.3](https://huggingface.co/ibm-granite)             | 1B/2B/3B/8B                      | granite3             |
@@ -315,7 +315,7 @@ Read technical notes:
 | [MiMo](https://huggingface.co/XiaomiMiMo)                         | 7B                               | mimo                 |
 | [MiniCPM 1-4.1](https://huggingface.co/openbmb)                   | 0.5B/1B/2B/4B/8B                 | cpm/cpm3/cpm4        |
 | [MiniCPM-o-2.6/MiniCPM-V-2.6](https://huggingface.co/openbmb)     | 8B                               | minicpm_o/minicpm_v  |
-| [Ministral/Mistral-Nemo](https://huggingface.co/mistralai)        | 8B/12B                           | ministral            |
+| [Ministral(3)/Mistral-Nemo](https://huggingface.co/mistralai)     | 3B/8B/12B/14B                    | ministral/ministral3 |
 | [Mistral/Mixtral](https://huggingface.co/mistralai)               | 7B/8x7B/8x22B                    | mistral              |
 | [Mistral Small](https://huggingface.co/mistralai)                 | 24B                              | mistral_small        |
 | [OLMo](https://huggingface.co/allenai)                            | 1B/7B                            | -                    |
@@ -336,6 +336,7 @@ Read technical notes:
 | [Skywork o1](https://huggingface.co/Skywork)                      | 8B                               | skywork_o1           |
 | [StarCoder 2](https://huggingface.co/bigcode)                     | 3B/7B/15B                        | -                    |
 | [TeleChat2](https://huggingface.co/Tele-AI)                       | 3B/7B/35B/115B                   | telechat2            |
+| [VibeThinker-1.5B](https://huggingface.co/WeiboAI)                | 1.5B                             | qwen3                |
 | [XVERSE](https://huggingface.co/xverse)                           | 7B/13B/65B                       | xverse               |
 | [Yi/Yi-1.5 (Code)](https://huggingface.co/01-ai)                  | 1.5B/6B/9B/34B                   | yi                   |
 | [Yi-VL](https://huggingface.co/01-ai)                             | 6B/34B                           | yi_vl                |

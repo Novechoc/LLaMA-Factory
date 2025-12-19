@@ -14,12 +14,8 @@
 
 
 from dataclasses import dataclass, field
-from enum import Enum
 
-
-class SampleBackend(Enum):
-    HF = "hf"
-    VLLM = "vllm"
+from .arg_utils import SampleBackend
 
 
 @dataclass
