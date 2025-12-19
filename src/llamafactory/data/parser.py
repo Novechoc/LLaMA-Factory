@@ -32,6 +32,7 @@ class DatasetAttr:
     dataset_name: str
     formatting: Literal["alpaca", "sharegpt", "openai"] = "alpaca"
     ranking: bool = False
+    mask_history: Optional[bool] = None
     # extra configs
     subset: Optional[str] = None
     split: str = "train"
@@ -72,6 +73,7 @@ class DatasetAttr:
     def join(self, attr: dict[str, Any]) -> None:
         self.set_attr("formatting", attr, default="alpaca")
         self.set_attr("ranking", attr, default=False)
+        self.set_attr("mask_history", attr)
         self.set_attr("subset", attr)
         self.set_attr("split", attr, default="train")
         self.set_attr("folder", attr)

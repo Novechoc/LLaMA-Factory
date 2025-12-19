@@ -417,8 +417,17 @@ def align_dataset(
         )
 
     dataset_converter = get_dataset_converter(dataset_attr.formatting, dataset_attr, data_args)
+    mask_history = dataset_attr.mask_history
+    if mask_history is None:
+        mask_history = data_args.mask_history
+
+    def _convert(example: dict[str, Any]) -> dict[str, Any]:
+        output = dataset_converter(example)
+        output["_mask_history"] = mask_history
+        return output
+
     return dataset.map(
-        dataset_converter,
+        _convert,
         batched=False,
         remove_columns=column_names,
         **kwargs,

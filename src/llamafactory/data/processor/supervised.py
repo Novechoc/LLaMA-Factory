@@ -40,7 +40,9 @@ class SupervisedDatasetProcessor(DatasetProcessor):
         images: list["ImageInput"],
         videos: list["VideoInput"],
         audios: list["AudioInput"],
+        mask_history: Optional[bool] = None,
     ) -> tuple[list[int], list[int]]:
+        effective_mask_history = self.data_args.mask_history if mask_history is None else mask_history
         scaled_prompt, scaled_response = prompt, response
         if (
             images
@@ -61,7 +63,7 @@ class SupervisedDatasetProcessor(DatasetProcessor):
         )
         encoded_pairs = self.template.encode_multiturn(self.tokenizer, messages, system, tools)
         total_length = len(input_ids) + (1 if self.template.efficient_eos else 0)
-        if self.data_args.mask_history:
+        if effective_mask_history:
             encoded_pairs = encoded_pairs[::-1]  # high priority for last turns
 
         for turn_idx, (source_ids, target_ids) in enumerate(encoded_pairs):
@@ -82,12 +84,12 @@ class SupervisedDatasetProcessor(DatasetProcessor):
             else:
                 source_label = [IGNORE_INDEX] * source_len
 
-            if self.data_args.mask_history and turn_idx != 0:  # train on the last turn only
+            if effective_mask_history and turn_idx != 0:  # train on the last turn only
                 target_label = [IGNORE_INDEX] * target_len
             else:
                 target_label = target_ids
 
-            if self.data_args.mask_history:  # reversed sequences
+            if effective_mask_history:  # reversed sequences
                 input_ids = source_ids + target_ids + input_ids
                 labels = source_label + target_label + labels
             else:
@@ -111,6 +113,10 @@ class SupervisedDatasetProcessor(DatasetProcessor):
                 )
                 continue
 
+            mask_history = None
+            if "_mask_history" in examples:
+                mask_history = examples["_mask_history"][i]
+
             input_ids, labels = self._encode_data_example(
                 prompt=examples["_prompt"][i],
                 response=examples["_response"][i],
@@ -119,6 +125,7 @@ class SupervisedDatasetProcessor(DatasetProcessor):
                 images=examples["_images"][i] or [],
                 videos=examples["_videos"][i] or [],
                 audios=examples["_audios"][i] or [],
+                mask_history=mask_history,
             )
             model_inputs["input_ids"].append(input_ids)
             model_inputs["attention_mask"].append([1] * len(input_ids))
@@ -154,6 +161,10 @@ class PackedSupervisedDatasetProcessor(SupervisedDatasetProcessor):
                 )
                 continue
 
+            mask_history = None
+            if "_mask_history" in examples:
+                mask_history = examples["_mask_history"][i]
+
             input_ids, labels = self._encode_data_example(
                 prompt=examples["_prompt"][i],
                 response=examples["_response"][i],
@@ -162,6 +173,7 @@ class PackedSupervisedDatasetProcessor(SupervisedDatasetProcessor):
                 images=examples["_images"][i] or [],
                 videos=examples["_videos"][i] or [],
                 audios=examples["_audios"][i] or [],
+                mask_history=mask_history,
             )
             length = len(input_ids)
             if length > self.data_args.cutoff_len:
