@@ -123,15 +123,6 @@ class DataArguments:
         default=True,
         metadata={"help": "Whether or not to enable thinking mode for reasoning models."},
     )
-    rescale_action_coordinates: bool = field(
-        default=False,
-        metadata={
-            "help": (
-                "Enable automatic conversion of action coordinates embedded in <point> tags "
-                "to match the absolute scale produced by the vision processor."
-            )
-        },
-    )
     tokenized_path: Optional[str] = field(
         default=None,
         metadata={
