@@ -40,6 +40,12 @@ class DatasetConverter:
     dataset_attr: "DatasetAttr"
     data_args: "DataArguments"
 
+    def _resolve_system(self, system: Any) -> str:
+        resolved = system if isinstance(system, str) else ""
+        if resolved == "" and self.dataset_attr.default_system is not None:
+            return self.dataset_attr.default_system
+        return resolved
+
     def _find_medias(self, medias: Union["MediaType", list["MediaType"], None]) -> Optional[list["MediaType"]]:
         r"""Optionally concatenate media path to media dir when loading from local disk."""
         if medias is None:
@@ -122,7 +128,7 @@ class AlpacaDatasetConverter(DatasetConverter):
         output = {
             "_prompt": prompt,
             "_response": response,
-            "_system": example[self.dataset_attr.system] if self.dataset_attr.system else "",
+            "_system": self._resolve_system(example[self.dataset_attr.system] if self.dataset_attr.system else ""),
             "_tools": example[self.dataset_attr.tools] if self.dataset_attr.tools else "",
             "_images": self._find_medias(example[self.dataset_attr.images]) if self.dataset_attr.images else None,
             "_videos": self._find_medias(example[self.dataset_attr.videos]) if self.dataset_attr.videos else None,
@@ -154,6 +160,7 @@ class SharegptDatasetConverter(DatasetConverter):
             messages = messages[1:]
         else:
             system = example[self.dataset_attr.system] if self.dataset_attr.system else ""
+        system = self._resolve_system(system)
 
         aligned_messages = []
         broken_data = False
@@ -248,6 +255,7 @@ class OpenAIDatasetConverter(DatasetConverter):
             messages = messages[1:]
         else:
             system = example.get(self.dataset_attr.system, "") if self.dataset_attr.system else ""
+        system = self._resolve_system(system)
 
         aligned_messages = []
         tool_responses = []

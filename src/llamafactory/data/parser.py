@@ -44,6 +44,8 @@ class DatasetAttr:
     images: Optional[str] = None
     videos: Optional[str] = None
     audios: Optional[str] = None
+    # dataset-level defaults
+    default_system: Optional[str] = None
     # dpo columns
     chosen: Optional[str] = None
     rejected: Optional[str] = None
@@ -78,6 +80,9 @@ class DatasetAttr:
         self.set_attr("split", attr, default="train")
         self.set_attr("folder", attr)
         self.set_attr("num_samples", attr)
+        self.set_attr("default_system", attr)
+        if self.default_system is None and "system_prompt" in attr:
+            self.default_system = attr["system_prompt"]
 
         if "columns" in attr:
             column_names = ["prompt", "query", "response", "history", "messages", "system", "tools"]
